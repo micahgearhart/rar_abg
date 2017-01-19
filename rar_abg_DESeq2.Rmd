@@ -1,0 +1,315 @@
+---
+title: "rar_abg"
+author: "Micah Gearhart"
+date: "1/17/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries,eval=T,results='hide',message=FALSE,warning=FALSE}
+#bioconductor
+library("GenomicFeatures")
+library("BiocParallel")
+library("Rsamtools")
+library("GenomicAlignments")
+library("Mus.musculus")
+
+#tidy
+library("ggplot2")
+library("gridExtra")
+library("readr")
+library("dplyr")
+library("magrittr")
+library("DESeq2")
+
+library("VennDiagram")
+library("biomaRt")
+library("GOstats")
+library("GO.db")
+
+load("../robin/micah/ens84_mouse.rdata")
+load("../robin/mgi.rdata")
+
+(ts<-format(Sys.time(), "%a_%b_%d_%Y_%H%M"))
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+```
+
+## Define a helper function for viewing raw counts
+
+```{r defineFunctions}
+gg_plotCounts<-function(x="ENSMUSG00000024837",d=cds2) {
+  if (substr(x,1,7)=="ENSMUSG") {
+    title<-mgi[grep(x,mgi$ensembl_gene_id),"mgi_symbol"]
+  } else {
+    title<-x
+    x<-mgi[grep(paste0("^",title,"$"),mgi$mgi_symbol),"ensembl_gene_id"]
+  }
+  
+  plotCounts(d,x,intgroup=c("genotype","batch"),returnData=T) %>%
+    ggplot(aes(x=genotype, y=count)) +
+    geom_point(position=position_jitter(w=0.1,h=0)) + ggtitle(title) +
+    expand_limits(x=0, y = 0) +
+    facet_grid(~batch) +
+    theme_bw()
+}
+
+```
+
+```{r}
+load("../anna/zarkowe0_RarVsCagDmrt1_ens84_Thu_Jul_14_2016_1207.rdata")
+apply(assays(genehits2)$counts,2,sum)
+
+#mgi[grep("^Rara",mgi$mgi_symbol),]
+#gr<-unlist(ens84["ENSMUSG00000037992"])
+```
+
+#Explore PCA
+```{r}
+dds<-DESeqDataSet(genehits2,design=~1)
+colData(dds)$filename<-colnames(dds)
+colData(dds)$sample<-sapply(strsplit(colnames(dds),"_"),function(x) x[1])
+wt<-c("7802","7805","7707","7808","7804","7807")
+ko<-c("7800","7801","7713","7803","7558","7715")
+colData(dds)$genotype<-ifelse(colData(dds)$sample %in% wt,"WT",
+                              ifelse(colData(dds)$sample %in% ko,"KO",
+                              ifelse(colData(dds)$sample %in% c("DMEf8","DMEf9"),"cag-dmrt1",
+                              ifelse(colData(dds)$sample %in% c("WTf6","WTf7"),"Ovary","Testis"))))
+colData(dds)$batch<-c(rep("Anna",12),rep("Robin",6))
+
+alleles<-c("Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
+             "Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
+             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-")
+
+
+
+names(alleles)<-c("7558","7707","7713","7715","7801","7802","7803","7804","7805","7807")
+colData(dds)
+colData(dds)$alleles<-factor(alleles[colData(dds)$sample],levels=c("Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
+                                                                   "Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
+                                                                   "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+"))
+
+#Does the presence of the heterozygous Dmrt1 allele make a difference?
+plotPCA( DESeqTransform( dds[,1:12] ) ,intgroup = c("alleles"),ntop=100)+
+  ggtitle("dds") + theme_bw()
+
+#Subset to samples we are going to keep
+dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7713","7803","7558","7715")]
+#dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7803","7715")]
+
+plotPCA( DESeqTransform( dds2 ) ,intgroup = c("alleles"),ntop=100)+
+  ggtitle("dds2") + theme_bw()
+  
+#Explore rlog transformation
+dds2rl <- rlog(dds2)
+
+plotPCA( dds2rl ,intgroup = c("alleles"),ntop=100)+
+  ggtitle("rlog dds") + theme_bw()
+
+gg_plotCounts("Dmrt1",dds2)
+gg_plotCounts("Nr6a1",dds2)
+gg_plotCounts("Pou5f1",dds2)
+gg_plotCounts("Adh7",dds2)
+
+```
+
+# delete this section Check Anna's call for "bad samples"
+```{r, AnnaDESeq2, eval=F}
+load("../anna/se_7_5_16.rdata")
+csvfile <- file.path("../anna","RAR_sample_table.csv")
+(sampleTable <- read.csv(csvfile,header = FALSE, row.names= NULL, col.names = c("Sample", "Condition"), nrows = 12))
+
+colnames(se)[c(2:6,8:12)]
+se10 <- se[,c(2:6,8:12)]
+(colData(se10) <- DataFrame(sampleTable[c(2:6,8:12),]))
+
+## average(?) by condition
+ddsAM <- DESeqDataSet(se10, design = ~ Condition)
+nrow(ddsAM)
+nrow(ddsAM <- ddsAM[ rowSums(counts(ddsAM)) > 1, ])
+ddsAM <- DESeq(ddsAM)
+(res <- results(ddsAM))
+##The first column, baseMean, is a just the average of the normalized count values, dividing by size factors, taken over all samples in the DESeqDataSet
+##this estimate has an uncertainty associated with it, which is available in the column lfcSE, the standard error estimate for the log2 fold change estimate
+
+summary(res)
+res.05 <- results(ddsAM, alpha=.05)
+summary(res.05)
+table(res.05$padj < .05)
+resSig <- subset(res, padj < 0.05)
+head(resSig[ order(resSig$log2FoldChange), ])
+head(resSig[ order(resSig$log2FoldChange, decreasing=TRUE), ])
+
+resLFC1 <- results(ddsAM, lfcThreshold=1)
+table(resLFC1$padj < 0.1)
+
+plotMA(resLFC1, ylim=c(-3,3))
+
+library("org.Mm.eg.db")
+columns(org.Mm.eg.db)
+res$symbol <- mapIds(org.Mm.eg.db,keys=row.names(res),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
+
+res$symbolTest <- mapIds(org.Mm.eg.db,keys=row.names(res),column="SYMBOL",keytype="ENSEMBL",multiVals="list")
+## get rid of column
+res$symbolTest <- NULL
+
+res$entrez <- mapIds(org.Mm.eg.db,keys=row.names(res),column="ENTREZID",keytype="ENSEMBL",multiVals="first")
+
+## this allows you to subset a column without getting the error about NAs
+res05sub <- subset(res, padj < 0.05)
+
+head(res05sub[ order(res05sub$log2FoldChange, decreasing=TRUE), ])
+```
+
+
+```{r}
+colData(dds2)$genotype<-factor(colData(dds2)$genotype,levels=c("WT","KO"))
+design(dds2)<-(~genotype)
+dds2<-DESeq(dds2)
+resultsNames(dds2)
+summary(res_orig<-results(dds2, contrast=c("genotype","KO","WT"),alpha=0.05,lfcThreshold = 0))
+table(res_orig$padj < 0.05)
+
+idx<-match(rownames(res_orig),mgi$ensembl_gene_id)
+res_orig$mgi<-mgi[idx,"mgi_symbol"]
+res_orig<-res_orig[with(res_orig,order(padj)),]
+head(res_orig)
+plotMA(res_orig, alpha=0.05, ylim=c(-12,12))
+write.csv(res_orig[1:172,],paste0("Supplmentary_Table_1",ts,".csv"),quote=F)
+
+g1<-res_orig %>%
+  as.data.frame() %>% 
+  mutate(deg=padj<0.05) %>% 
+  mutate(x=log2(baseMean+0.5)) %>% 
+  filter(!(is.na(padj) | is.na(log2FoldChange))) %>% 
+  ggplot(aes(x=x,y=log2FoldChange,color=deg)) + 
+  ggtitle("WT vs RAR null (original)") + ylim(c(-12,12)) +
+  xlab("Mean Expression (Log2 Normalized Counts)") + ylab("Wt vs Null Log2FC") +
+  scale_color_manual(values=c("black","red")) +
+  geom_point(size=0.35)+theme_bw() + theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank()) +
+  theme(legend.position="none")
+
+```
+
+## differences between floxed and wt
+```{r}
+#colData(dds2)
+#dds3<-dds2[,grepl("Sf1-Cre\\+",as.character(colData(dds2)$alleles))]
+#colData(dds3)
+#dds3$alleles<-droplevels(dds3$alleles)
+dds3<-dds2
+levels(dds3$alleles)
+dds3$genotype2<-dds3$alleles
+levels(dds3$alleles)<-c("WT","dmrt1Het_KO","KO")
+colData(dds3)
+design(dds3)<-(~alleles)
+dds3<-DESeq(dds3)
+resultsNames(dds3)
+summary(res<-results(dds3, contrast=c("alleles","Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+","Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+"),alpha=0.05,lfcThreshold = 0))
+summary(res<-results(dds3, contrast=c("alleles","KO","WT"),alpha=0.05,lfcThreshold = 0))
+summary(res_ko<-results(dds3, contrast=c("alleles","dmrt1Het_KO","WT"),alpha=0.05,lfcThreshold = 0))
+table(res$padj < 0.05)
+table(res_ko$padj < 0.05)
+idx<-match(rownames(res_ko),mgi$ensembl_gene_id)
+res_ko$mgi<-mgi[idx,"mgi_symbol"]
+
+idx<-match(rownames(res),mgi$ensembl_gene_id)
+res$mgi<-mgi[idx,"mgi_symbol"]
+res<-res[with(res,order(padj)),]
+head(res,20)
+plotMA(res, alpha=0.05, ylim=c(-12,12))
+
+res$new<-!(rownames(res) %in% rownames(res_orig[1:172,]))
+
+#View(res)
+res<-res[with(res,order(padj)),]
+head(res)
+res_temp<-res[!is.na(res$padj),]
+res_temp<-res_temp[res_temp$padj<0.05,]
+dim(res_temp)
+write.csv(res_temp,paste0("Supplmentary_Table_1",ts,".csv"),quote=F)
+options(httr_oob_default=TRUE)
+#googlesheets::gs_auth(new_user = TRUE)
+temp_gs<-googlesheets::gs_upload(paste0("Supplmentary_Table_1",ts,".csv"))
+googlesheets::gs_browse(temp_gs)
+
+gg_plotCounts("Pappa2",dds2)
+gg_plotCounts("Adh7",dds2)
+
+g2<-res %>%
+  as.data.frame() %>% 
+  mutate(deg=padj<0.05) %>% 
+  mutate(x=log2(baseMean+0.5)) %>% 
+  filter(!(is.na(padj) | is.na(log2FoldChange))) %>% 
+  ggplot(aes(x=x,y=log2FoldChange,color=deg)) + 
+  ggtitle("WT vs RAR null (new) ") + ylim(c(-12,12)) +
+  xlab("Mean Expression (Log2 Normalized Counts)") + ylab("") +
+  scale_color_manual(values=c("black","red")) +
+  geom_point(size=0.35)+theme_bw() + theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank()) +
+  theme(legend.position="none")
+
+
+```
+
+
+```{r}
+colData(dds4<-dds[,13:16])
+colData(dds4)$genotype<-factor(colData(dds4)$genotype,levels=c("Ovary","cag-dmrt1"))
+design(dds4)<-(~genotype)
+dds4<-DESeq(dds4)
+resultsNames(dds4)
+summary(res_cag<-results(dds4, contrast=c("genotype","cag.dmrt1","Ovary"),alpha=0.05,lfcThreshold = 0))
+table(res_cag$padj < 0.05)
+
+idx<-match(rownames(res_cag),mgi$ensembl_gene_id)
+res_cag$mgi<-mgi[idx,"mgi_symbol"]
+res_cag<-res_cag[with(res_cag,order(padj)),]
+head(res_cag)
+plotMA(res_cag, alpha=0.05, ylim=c(-12,12))
+
+g3<-res_cag %>%
+  as.data.frame() %>% 
+  mutate(deg=padj<0.05) %>% 
+  mutate(x=log2(baseMean+0.5)) %>% 
+  filter(!(is.na(padj) | is.na(log2FoldChange))) %>% 
+  ggplot(aes(x=x,y=log2FoldChange,color=deg)) + 
+  ggtitle("Wt vs cag-Dmrt1 Ovary") + ylim(c(-12,12)) +
+  xlab("Mean Expression (Log2 Normalized Counts)") + ylab("Wt vs cag-Dmrt1 Ovary Log2FC") +
+  scale_color_manual(values=c("black","red")) +
+  geom_point(size=0.35)+theme_bw() + theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank()) +
+  theme(legend.position="none")
+
+grid.arrange(g1,g2,g3,ncol=3)
+```
+
+```{r}
+colData(dds3)
+dds5<-dds3[,1:8]
+
+plotPCA( DESeqTransform( dds5 ) ,intgroup = c("alleles"),ntop=100)+
+  ggtitle("dds") + theme_bw()
+
+colData(dds5)
+gg_plotCounts("Foxl2",dds3)
+design(dds5)<-(~genotype)
+dds5<-DESeq(dds5)
+resultsNames(dds5)
+summary(res_dds5<-results(dds5, contrast=c("genotype","KO","WT"),alpha=0.05,lfcThreshold = 0))
+table(res_dds5$padj < 0.05)
+
+```
+
+#GO terms
+```{r}
+
+```
+
