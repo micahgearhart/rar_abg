@@ -59,7 +59,22 @@ gg_plotCounts<-function(x="ENSMUSG00000024837",d=cds2) {
 ```
 
 ```{r}
+listMarts(host="www.ensembl.org")
+ensembl_87<-useMart(biomart="ENSEMBL_MART_ENSEMBL",host="www.ensembl.org", 
+                    dataset="mmusculus_gene_ensembl")
+txdb87<-makeTxDbFromBiomart(biomart="ENSEMBL_MART_ENSEMBL",host ="www.ensembl.org",
+                            dataset="mmusculus_gene_ensembl",taxonomyId = "10090")
+ens87<-exonsBy(txdb87,by="gene")
+mgi <-  getBM(attributes = c("ensembl_gene_id", "mgi_id", "mgi_symbol"), filters = "ensembl_gene_id",
+        values = names(ens87), mart = ensembl_87)
+save(ens87,file="ens87_mouse.rdata")
+save(mgi,file="mgi.rdata")
+
+```
+
+```{r}
 load("../anna/zarkowe0_RarVsCagDmrt1_ens84_Thu_Jul_14_2016_1207.rdata")
+load("zarkowe0_RarVsCagDmrt1_ens87_Mon_Jan_23_2017_2323.rdata")
 apply(assays(genehits2)$counts,2,sum)
 
 #mgi[grep("^Rara",mgi$mgi_symbol),]
@@ -72,16 +87,14 @@ dds<-DESeqDataSet(genehits2,design=~1)
 colData(dds)$filename<-colnames(dds)
 colData(dds)$sample<-sapply(strsplit(colnames(dds),"_"),function(x) x[1])
 wt<-c("7802","7805","7707","7808","7804","7807")
-ko<-c("7800","7801","7713","7803","7558","7715")
+ko<-c("7800","7801","7803","7715")
 colData(dds)$genotype<-ifelse(colData(dds)$sample %in% wt,"WT",
                               ifelse(colData(dds)$sample %in% ko,"KO",
                               ifelse(colData(dds)$sample %in% c("DMEf8","DMEf9"),"cag-dmrt1",
                               ifelse(colData(dds)$sample %in% c("WTf6","WTf7"),"Ovary","Testis"))))
-colData(dds)$batch<-c(rep("Anna",12),rep("Robin",6))
+colData(dds)$batch<-c(rep("Anna",8),rep("Robin",6))
 
-alleles<-c("Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
-             "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
-             "Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
+alleles<-c("Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
              "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
              "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
              "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
@@ -92,19 +105,18 @@ alleles<-c("Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
 
 
 
-names(alleles)<-c("7558","7707","7713","7715","7801","7802","7803","7804","7805","7807")
+names(alleles)<-c("7707","7715","7801","7802","7803","7804","7805","7807")
 colData(dds)
 colData(dds)$alleles<-factor(alleles[colData(dds)$sample],levels=c("Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
-                                                                   "Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+",
                                                                    "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+"))
 
 #Does the presence of the heterozygous Dmrt1 allele make a difference?
-plotPCA( DESeqTransform( dds[,1:12] ) ,intgroup = c("alleles"),ntop=100)+
+plotPCA( DESeqTransform( dds ) ,intgroup = c("genotype"),ntop=500)+
   ggtitle("dds") + theme_bw()
 
 #Subset to samples we are going to keep
-dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7713","7803","7558","7715")]
-#dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7803","7715")]
+#dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7713","7803","7558","7715")]
+dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7803","7715")]
 
 plotPCA( DESeqTransform( dds2 ) ,intgroup = c("alleles"),ntop=100)+
   ggtitle("dds2") + theme_bw()
@@ -122,83 +134,91 @@ gg_plotCounts("Adh7",dds2)
 
 ```
 
-# delete this section Check Anna's call for "bad samples"
-```{r, AnnaDESeq2, eval=F}
-load("../anna/se_7_5_16.rdata")
-csvfile <- file.path("../anna","RAR_sample_table.csv")
-(sampleTable <- read.csv(csvfile,header = FALSE, row.names= NULL, col.names = c("Sample", "Condition"), nrows = 12))
-
-colnames(se)[c(2:6,8:12)]
-se10 <- se[,c(2:6,8:12)]
-(colData(se10) <- DataFrame(sampleTable[c(2:6,8:12),]))
-
-## average(?) by condition
-ddsAM <- DESeqDataSet(se10, design = ~ Condition)
-nrow(ddsAM)
-nrow(ddsAM <- ddsAM[ rowSums(counts(ddsAM)) > 1, ])
-ddsAM <- DESeq(ddsAM)
-(res <- results(ddsAM))
-##The first column, baseMean, is a just the average of the normalized count values, dividing by size factors, taken over all samples in the DESeqDataSet
-##this estimate has an uncertainty associated with it, which is available in the column lfcSE, the standard error estimate for the log2 fold change estimate
-
-summary(res)
-res.05 <- results(ddsAM, alpha=.05)
-summary(res.05)
-table(res.05$padj < .05)
-resSig <- subset(res, padj < 0.05)
-head(resSig[ order(resSig$log2FoldChange), ])
-head(resSig[ order(resSig$log2FoldChange, decreasing=TRUE), ])
-
-resLFC1 <- results(ddsAM, lfcThreshold=1)
-table(resLFC1$padj < 0.1)
-
-plotMA(resLFC1, ylim=c(-3,3))
-
-library("org.Mm.eg.db")
-columns(org.Mm.eg.db)
-res$symbol <- mapIds(org.Mm.eg.db,keys=row.names(res),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
-
-res$symbolTest <- mapIds(org.Mm.eg.db,keys=row.names(res),column="SYMBOL",keytype="ENSEMBL",multiVals="list")
-## get rid of column
-res$symbolTest <- NULL
-
-res$entrez <- mapIds(org.Mm.eg.db,keys=row.names(res),column="ENTREZID",keytype="ENSEMBL",multiVals="first")
-
-## this allows you to subset a column without getting the error about NAs
-res05sub <- subset(res, padj < 0.05)
-
-head(res05sub[ order(res05sub$log2FoldChange, decreasing=TRUE), ])
-```
-
+## DESeq2
 
 ```{r}
 colData(dds2)$genotype<-factor(colData(dds2)$genotype,levels=c("WT","KO"))
 design(dds2)<-(~genotype)
 dds2<-DESeq(dds2)
 resultsNames(dds2)
-summary(res_orig<-results(dds2, contrast=c("genotype","KO","WT"),alpha=0.05,lfcThreshold = 0))
-table(res_orig$padj < 0.05)
+summary(res<-results(dds2, contrast=c("genotype","KO","WT"),alpha=0.05,lfcThreshold = 0))
+table(res$padj < 0.05)
 
-idx<-match(rownames(res_orig),mgi$ensembl_gene_id)
-res_orig$mgi<-mgi[idx,"mgi_symbol"]
-res_orig<-res_orig[with(res_orig,order(padj)),]
-head(res_orig)
-plotMA(res_orig, alpha=0.05, ylim=c(-12,12))
-write.csv(res_orig[1:172,],paste0("Supplmentary_Table_1",ts,".csv"),quote=F)
+idx<-match(rownames(res),mgi$ensembl_gene_id)
+res$mgi<-mgi[idx,"mgi_symbol"]
+res<-res[with(res,order(padj)),]
+head(res)
+plotMA(res, alpha=0.05, ylim=c(-12,12))
 
-g1<-res_orig %>%
+res<-res[with(res,order(padj)),]
+head(res)
+dim(res_temp<-subset(res,padj<0.05))
+table(abs(res_temp$log2FoldChange) > 1)
+table(res_temp$log2FoldChange > 0)
+
+#subset to abs(log2FC) > 1
+res_temp<-res_temp[abs(res_temp$log2FoldChange) > 1,]
+
+
+# Genes with missing symbols
+res_temp[res_temp$mgi=="",]
+
+#http://useast.ensembl.org/Mus_musculus/Gene/Summary?db=core;g=ENSMUSG00000111640;r=CHR_MG153_PATCH:4061447-4061762;t=ENSMUST00000216743
+res_temp["ENSMUSG00000111640","mgi"] <-"AC109138.6"
+
+#ENSMUSG00000098411 is an alternative assembly allele for Dlk1 with is already on the list so we can omit the gene
+res_temp<-res_temp[rownames(res_temp)!="ENSMUSG00000098411",]
+
+write.csv(res_temp,paste0("Supplmentary_Table_1_",ts,".csv"),quote=F)
+
+
+```
+
+## Export for Latex via xtable
+```{r}
+dim(res_temp_up<-as.data.frame(res_temp[res_temp$log2FoldChange > 0,c("mgi","log2FoldChange","padj")]))
+dim(res_temp_down<-as.data.frame(res_temp[res_temp$log2FoldChange < 0,c("mgi","log2FoldChange","padj")]))
+
+colnames(res_temp_up)<-c("Gene","logFC","Adjusted p-value")
+colnames(res_temp_down)<-c("Gene","logFC","Adjusted p-value")
+
+xtmp1<-xtable(res_temp_up[1:50,])
+digits(xtmp1)<-c(0,0,2,-2)
+print(xtmp1, file="tu1.tex", floating=FALSE,include.rownames=FALSE)
+
+xtmp2<-xtable(res_temp_up[51:100,])
+digits(xtmp2)<-c(0,0,2,-2)
+print(xtmp2, file="tu2.tex", floating=FALSE,include.rownames=FALSE)
+
+xtmp3<-xtable(res_temp_up[101:nrow(res_temp_up),])
+digits(xtmp3)<-c(0,0,2,-2)
+print(xtmp3, file="tu3.tex", floating=FALSE,include.rownames=FALSE)
+
+xtmp4<-xtable(res_temp_down)
+digits(xtmp4)<-c(0,0,2,-2)
+print(xtmp4, file="td1.tex", floating=FALSE,include.rownames=FALSE)
+
+```
+
+
+```{r}
+g1<-res %>%
   as.data.frame() %>% 
-  mutate(deg=padj<0.05) %>% 
+  mutate(deg=padj<0.05 & abs(log2FoldChange) > 1) %>% 
   mutate(x=log2(baseMean+0.5)) %>% 
   filter(!(is.na(padj) | is.na(log2FoldChange))) %>% 
   ggplot(aes(x=x,y=log2FoldChange,color=deg)) + 
-  ggtitle("WT vs RAR null (original)") + ylim(c(-12,12)) +
+  ggtitle("WT vs RAR null") + ylim(c(-12,12)) +
   xlab("Mean Expression (Log2 Normalized Counts)") + ylab("Wt vs Null Log2FC") +
   scale_color_manual(values=c("black","red")) +
   geom_point(size=0.35)+theme_bw() + theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank()) +
   theme(legend.position="none")
 
+#ggsave(file=paste0("Figure_2B_",ts,".svg"),device = svglite::svglite,plot=g1,width=6,height=8.5)
+
 ```
+
+
 
 ## differences between floxed and wt
 ```{r}
@@ -262,7 +282,7 @@ g2<-res %>%
 
 
 ```{r}
-colData(dds4<-dds[,13:16])
+colData(dds4<-dds[,9:12])
 colData(dds4)$genotype<-factor(colData(dds4)$genotype,levels=c("Ovary","cag-dmrt1"))
 design(dds4)<-(~genotype)
 dds4<-DESeq(dds4)
@@ -274,11 +294,11 @@ idx<-match(rownames(res_cag),mgi$ensembl_gene_id)
 res_cag$mgi<-mgi[idx,"mgi_symbol"]
 res_cag<-res_cag[with(res_cag,order(padj)),]
 head(res_cag)
-plotMA(res_cag, alpha=0.05, ylim=c(-12,12))
+#plotMA(res_cag, alpha=0.05, ylim=c(-12,12))
 
 g3<-res_cag %>%
   as.data.frame() %>% 
-  mutate(deg=padj<0.05) %>% 
+  mutate(deg=padj<0.05 & abs(log2FoldChange) > 1) %>% 
   mutate(x=log2(baseMean+0.5)) %>% 
   filter(!(is.na(padj) | is.na(log2FoldChange))) %>% 
   ggplot(aes(x=x,y=log2FoldChange,color=deg)) + 
@@ -288,7 +308,11 @@ g3<-res_cag %>%
   geom_point(size=0.35)+theme_bw() + theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank()) +
   theme(legend.position="none")
 
-grid.arrange(g1,g2,g3,ncol=3)
+pdf(file=paste0("Figure_2C_",ts,".pdf"),width=8,height=5)
+grid.arrange(g1,g3,ncol=2)
+dev.off()
+
+#ggsave(file=paste0("Figure_2C_",ts,".svg"),device = svglite::svglite,plot=g3,width=6,height=8.5)
 ```
 
 ```{r}
@@ -309,7 +333,103 @@ table(res_dds5$padj < 0.05)
 ```
 
 #GO terms
+
+#old way
 ```{r}
+library("Mus.musculus")
+gocat<-AnnotationDbi::select(Mus.musculus,keys=rownames(res),keytype="ENSEMBL",columns="GOID")
+gocat<-gocat[gocat$ONTOLOGY=="BP",c("ENSEMBL","GOID")]
+str(gocat)
+gocat$GOID<-as.character(gocat$GOID)
+#gocat2<-do.call( rbind, lapply( rownames(gocat)[1:20], testCategory ) )
+gocat.list<-split(gocat$GOID,gocat$ENSEMBL)
+gocat.list[["ENSG00000183337"]]
+
+
+```
+
+#new way
+```{r}
+length(expressed_genes<-unique(c(rownames(res[res$baseMean > 1 & !is.na(res$log2FoldChange) & !is.na(res$padj),]),
+                                 rownames(res_cag[res_cag$baseMean > 1 & !is.na(res_cag$log2FoldChange) & !is.na(res_cag$padj),]))))
+
+mgi_go<-readr::read_delim("/mnt/gcd/go/gene_association.mgi",delim="\t",skip=24,col_names=F)
+
+colnames(mgi_go)<-c("DB","DB Object ID","Mgi Symbol","Qualifier","GO ID","DB:eEference","Evidence Code",
+                    "WithorFrom","Aspect","DB Object Name","DB Object Syn","DB Object Type","Taxon","Date","Assigned By",
+                    "Annotation Extension","Gene Product Form ID")
+table(mgi_go$`Evidence Code`)
+#high quality?  
+#dim(mgi_go<-mgi_go[mgi_go$`Evidence Code` %in% c("EXP","IDA","IEP","IGI","IMP","IPI","ISS","TAS"),])
+
+summary(idx<-match(mgi_go$`DB Object ID`,mgi$mgi_id))
+mgi_go$ensembl<-mgi[idx,"ensembl_gene_id"]
+
+dim(mgi_go<-mgi_go[!is.na(mgi_go$ensembl),c("ensembl","GO ID")])
+
+#subset to BP
+mgi_goterms<-readr::read_delim("/mnt/gcd/go/go_terms.mgi",delim="\t",col_names=F)
+colnames(mgi_goterms)<-c("Category","GO ID","Description")
+table(mgi_goterms$Category)
+dim(mgi_BP_goterms<-mgi_goterms[mgi_goterms$Category=="Biological Process","GO ID"])
+dim(mgi_go<-mgi_go[mgi_go$`GO ID` %in% mgi_BP_goterms$`GO ID`,])
+dim(mgi_go<-mgi_go[mgi_go$ensembl %in% expressed_genes,])
+
+#remove duplicated entries (possibly from multiple lines of evidence)
+dim(mgi_go<-mgi_go[!duplicated(mgi_go),])
+
+mgi_go.list<-split(mgi_go$`GO ID`,mgi_go$ensembl)
+
+mgi[grep("Dmrt1",mgi$mgi_symbol),]
+mgi_go.list[["ENSMUSG00000024837"]] # not express in ovary
+
+mgi[grep("Foxl2",mgi$mgi_symbol),]
+mgi_go.list[["ENSMUSG00000050397"]]
+
+#View(mgi_goterms[mgi_goterms$`GO ID` %in% mgi_go.list[["ENSMUSG00000024837"]],])
+#View(mgi_goterms[mgi_goterms$`GO ID` %in% mgi_go.list[["ENSMUSG00000050397"]],])
+
+
+mgi[mgi$ensembl_gene_id %in% mgi_go[grep("GO:0030238",mgi_go$`GO ID`),"ensembl"]$ensembl,]
+
+#bias.data
+bd<-sum(width(reduce(ens87)))
+bd["ENSMUSG00000024837"]
+
+
+bd<-bd[names(bd) %in% expressed_genes]
+head(bd)
+
+temp<-res[expressed_genes,]
+temp_deg<-subset(temp,temp$padj < 0.05 & abs(temp$log2FoldChange ) > 1)
+degs<-as.numeric(rownames(temp) %in% rownames(temp_deg))
+names(degs)<-rownames(temp)
+table(degs)
+
+pwf<-nullp(degs,bias.data=bd)
+
+GO.wall<-goseq(pwf,gene2cat=mgi_go.list)
+GO.wall[1:20,c("category","term","numDEInCat","numInCat")]
+
+head(GO.wall,20) %>%
+  dplyr::mutate(term=factor(term,levels=rev(term))) %>%
+ggplot(aes(x=term,y=-log10(over_represented_pvalue))) +
+  geom_bar(stat="identity",fill="red") +
+  coord_flip() + xlab("") +
+  theme_bw() 
+
+listGO<-function(goid) {
+  print(mgi_goterms[grep(goid,mgi_goterms$`GO ID`),])
+  tg<-mgi_go[grep(goid,mgi_go$`GO ID`),"ensembl"]
+  idx<-match(tg$ensembl,mgi$ensembl_gene_id)
+  tg$symbol<-mgi[idx,"mgi_symbol"]
+  tg$deg<-degs[tg$ensembl]
+  as.data.frame(tg)
+}
+
+listGO("GO:0008584") #male gonad development:  GO:0008584
+listGO("GO:0042573")
+
 
 ```
 
