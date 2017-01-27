@@ -1,8 +1,10 @@
 ---
 title: "rar_abg"
 author: "Micah Gearhart"
-date: "1/17/2017"
-output: html_document
+date: "1/27/2017"
+output:
+  html_document:
+    keep_md: true
 ---
 
 ```{r setup, include=FALSE}
@@ -69,6 +71,21 @@ save(mgi,file="mgi.rdata")
 
 ```
 
+## summarizeOverlaps on HPC cluster
+```{r summarizeOverlaps,eval=F}
+load("ens87_mouse.rdata")
+
+fls<-paste0("GRCm38/",c("7707_S27.Aligned.out.bam","7715_S30.Aligned.out.bam","7801_S23.Aligned.out.bam","7802_S26.Aligned.out.bam",
+                        "7803_S24.Aligned.out.bam","7804_S20.Aligned.out.bam","7805_S21.Aligned.out.bam","7807_S25.Aligned.out.bam"))
+(fls2 <- list.files("/home/bardwell/gearh006/dmrt1/ctv/mm10/GRCm38/ds", pattern=".bam$",full=TRUE))
+bamlst <- BamFileList(c(fls,fls2),yieldSize=1e7)
+register(MulticoreParam(workers=6))
+genehits2 <- summarizeOverlaps(ens87,bamlst,mode="Union",singleEnd=FALSE,ignore.strand=TRUE)
+save(genehits2,file=paste0("zarkowe0_RarVsCagDmrt1_ens87_",ts,".rdata"))
+(n<-apply(assays(genehits)$counts,2,sum))
+stopifnot(sum(n) > 0)
+```
+
 ## Load in Annotations and Gene Counts
 ```{r loadData,eval=T}
 load("ens87_mouse.rdata")
@@ -87,10 +104,6 @@ colData(dds)$sample<-sapply(strsplit(colnames(dds),"_"),function(x) x[1])
 wt<-c("7802","7805","7707","7808","7804","7807")
 ko<-c("7800","7801","7803","7715")
 
-#colData(dds)$genotype<-ifelse(colData(dds)$sample %in% wt,"WT",
-#                              ifelse(colData(dds)$sample %in% ko,"KO",
-#                              ifelse(colData(dds)$sample %in% c("DMEf8","DMEf9"),"cag-dmrt1",
-#                              ifelse(colData(dds)$sample %in% c("WTf6","WTf7"),"Ovary","Testis"))))
 
 colData(dds)$genotype<-ifelse(colData(dds)$sample %in% wt,"WT",
                               ifelse(colData(dds)$sample %in% ko,"KO",
