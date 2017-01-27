@@ -15,7 +15,6 @@ library("GenomicFeatures")
 library("BiocParallel")
 library("Rsamtools")
 library("GenomicAlignments")
-library("Mus.musculus")
 
 #tidy
 library("ggplot2")
@@ -25,13 +24,10 @@ library("dplyr")
 library("magrittr")
 library("DESeq2")
 
-library("VennDiagram")
-library("biomaRt")
-library("GOstats")
-library("GO.db")
+library("xtable")
 
-load("../robin/micah/ens84_mouse.rdata")
-load("../robin/mgi.rdata")
+library("biomaRt")
+library("goseq")
 
 (ts<-format(Sys.time(), "%a_%b_%d_%Y_%H%M"))
 cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
@@ -39,7 +35,7 @@ cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
 
 ## Define a helper function for viewing raw counts
 
-```{r defineFunctions}
+```{r defineFunctions,eval=T}
 gg_plotCounts<-function(x="ENSMUSG00000024837",d=cds2) {
   if (substr(x,1,7)=="ENSMUSG") {
     title<-mgi[grep(x,mgi$ensembl_gene_id),"mgi_symbol"]
@@ -58,7 +54,8 @@ gg_plotCounts<-function(x="ENSMUSG00000024837",d=cds2) {
 
 ```
 
-```{r}
+## Download Curent Annotations from ENSEMBL
+```{r biomaRt,eval=F}
 listMarts(host="www.ensembl.org")
 ensembl_87<-useMart(biomart="ENSEMBL_MART_ENSEMBL",host="www.ensembl.org", 
                     dataset="mmusculus_gene_ensembl")
@@ -72,13 +69,14 @@ save(mgi,file="mgi.rdata")
 
 ```
 
-```{r}
-load("../anna/zarkowe0_RarVsCagDmrt1_ens84_Thu_Jul_14_2016_1207.rdata")
-load("zarkowe0_RarVsCagDmrt1_ens87_Mon_Jan_23_2017_2323.rdata")
+## Load in Annotations and Gene Counts
+```{r loadData,eval=T}
+load("ens87_mouse.rdata")
+load("mgi.rdata")
+#load("zarkowe0_RarVsCagDmrt1_ens87_Mon_Jan_23_2017_2323.rdata")
+load("zarkowe0_RarVsCagDmrt1_ens87_Thu_Jan_26_2017_2027.rdata")
 apply(assays(genehits2)$counts,2,sum)
 
-#mgi[grep("^Rara",mgi$mgi_symbol),]
-#gr<-unlist(ens84["ENSMUSG00000037992"])
 ```
 
 #Explore PCA
@@ -88,10 +86,16 @@ colData(dds)$filename<-colnames(dds)
 colData(dds)$sample<-sapply(strsplit(colnames(dds),"_"),function(x) x[1])
 wt<-c("7802","7805","7707","7808","7804","7807")
 ko<-c("7800","7801","7803","7715")
+
+#colData(dds)$genotype<-ifelse(colData(dds)$sample %in% wt,"WT",
+#                              ifelse(colData(dds)$sample %in% ko,"KO",
+#                              ifelse(colData(dds)$sample %in% c("DMEf8","DMEf9"),"cag-dmrt1",
+#                              ifelse(colData(dds)$sample %in% c("WTf6","WTf7"),"Ovary","Testis"))))
+
 colData(dds)$genotype<-ifelse(colData(dds)$sample %in% wt,"WT",
                               ifelse(colData(dds)$sample %in% ko,"KO",
-                              ifelse(colData(dds)$sample %in% c("DMEf8","DMEf9"),"cag-dmrt1",
-                              ifelse(colData(dds)$sample %in% c("WTf6","WTf7"),"Ovary","Testis"))))
+                              ifelse(colData(dds)$sample %in% c("dmf8","dmf9"),"cag-dmrt1",
+                              ifelse(colData(dds)$sample %in% c("wtf6","wtf7"),"Ovary","Testis"))))
 colData(dds)$batch<-c(rep("Anna",8),rep("Robin",6))
 
 alleles<-c("Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
@@ -107,25 +111,30 @@ alleles<-c("Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
 
 names(alleles)<-c("7707","7715","7801","7802","7803","7804","7805","7807")
 colData(dds)
-colData(dds)$alleles<-factor(alleles[colData(dds)$sample],levels=c("Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
-                                                                   "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+"))
+colData(dds)$alleles<-factor(alleles[colData(dds)$sample],
+                             levels=c("Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre-",
+                                      "Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+"))
 
-#Does the presence of the heterozygous Dmrt1 allele make a difference?
-plotPCA( DESeqTransform( dds ) ,intgroup = c("genotype"),ntop=500)+
-  ggtitle("dds") + theme_bw()
+colData(dds)$genotype<-factor(colData(dds)$genotype,levels=c("WT","KO","Ovary","cag-dmrt1","Testis"))
 
-#Subset to samples we are going to keep
-#dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7713","7803","7558","7715")]
+g0<-plotPCA( DESeqTransform( dds ) ,intgroup = c("genotype"),ntop=100)+
+  ggtitle("PCA Analysis for RAR Knockouts and Lindemann (2015)") + theme_bw() + 
+  scale_color_manual(values=cbPalette[c(2,3,7,8,6)], name="Gonad Type", labels=c("WT Ovary (This study)","RAR TKO (This study)",
+                        "WT Ovary (Lindemann 2015)","Cag-Dmrt1 Ovary (Lindemann 2015)","WT Testis (Lindeman 2015)"))
+g0
+
+ggsave(file=paste0("Figure_2B_",ts,".svg"),device = svglite::svglite,plot=g0,width=8,height=6)
+
+
 dds2<-dds[,colData(dds)$sample %in% c("7802","7805","7707","7804","7807","7801","7803","7715")]
 
 plotPCA( DESeqTransform( dds2 ) ,intgroup = c("alleles"),ntop=100)+
   ggtitle("dds2") + theme_bw()
   
 #Explore rlog transformation
-dds2rl <- rlog(dds2)
-
-plotPCA( dds2rl ,intgroup = c("alleles"),ntop=100)+
-  ggtitle("rlog dds") + theme_bw()
+#ddsrl <- rlog(dds)
+#plotPCA( ddsrl ,intgroup = c("genotype"),ntop=100)+
+#  ggtitle("rlog dds") + theme_bw()
 
 gg_plotCounts("Dmrt1",dds2)
 gg_plotCounts("Nr6a1",dds2)
@@ -148,7 +157,7 @@ idx<-match(rownames(res),mgi$ensembl_gene_id)
 res$mgi<-mgi[idx,"mgi_symbol"]
 res<-res[with(res,order(padj)),]
 head(res)
-plotMA(res, alpha=0.05, ylim=c(-12,12))
+#plotMA(res, alpha=0.05, ylim=c(-12,12))
 
 res<-res[with(res,order(padj)),]
 head(res)
@@ -179,28 +188,26 @@ write.csv(res_temp,paste0("Supplmentary_Table_1_",ts,".csv"),quote=F)
 dim(res_temp_up<-as.data.frame(res_temp[res_temp$log2FoldChange > 0,c("mgi","log2FoldChange","padj")]))
 dim(res_temp_down<-as.data.frame(res_temp[res_temp$log2FoldChange < 0,c("mgi","log2FoldChange","padj")]))
 
-colnames(res_temp_up)<-c("Gene","logFC","Adjusted p-value")
-colnames(res_temp_down)<-c("Gene","logFC","Adjusted p-value")
+colnames(res_temp_up)<-c("Gene","log2FC","Adjusted p-value")
+colnames(res_temp_down)<-c("Gene","log2FC","Adjusted p-value")
 
-xtmp1<-xtable(res_temp_up[1:50,])
+xtmp1<-xtable(res_temp_up[1:68,])
 digits(xtmp1)<-c(0,0,2,-2)
 print(xtmp1, file="tu1.tex", floating=FALSE,include.rownames=FALSE)
 
-xtmp2<-xtable(res_temp_up[51:100,])
+xtmp2<-xtable(res_temp_up[69:136,])
 digits(xtmp2)<-c(0,0,2,-2)
 print(xtmp2, file="tu2.tex", floating=FALSE,include.rownames=FALSE)
-
-xtmp3<-xtable(res_temp_up[101:nrow(res_temp_up),])
-digits(xtmp3)<-c(0,0,2,-2)
-print(xtmp3, file="tu3.tex", floating=FALSE,include.rownames=FALSE)
 
 xtmp4<-xtable(res_temp_down)
 digits(xtmp4)<-c(0,0,2,-2)
 print(xtmp4, file="td1.tex", floating=FALSE,include.rownames=FALSE)
 
+system("pdflatex test6.tex")
+system(paste0("mv test6.pdf ","Supplmentary_Table_1_",ts,".pdf"))
 ```
 
-
+## MA plot for RAR KO data
 ```{r}
 g1<-res %>%
   as.data.frame() %>% 
@@ -219,67 +226,7 @@ g1<-res %>%
 ```
 
 
-
-## differences between floxed and wt
-```{r}
-#colData(dds2)
-#dds3<-dds2[,grepl("Sf1-Cre\\+",as.character(colData(dds2)$alleles))]
-#colData(dds3)
-#dds3$alleles<-droplevels(dds3$alleles)
-dds3<-dds2
-levels(dds3$alleles)
-dds3$genotype2<-dds3$alleles
-levels(dds3$alleles)<-c("WT","dmrt1Het_KO","KO")
-colData(dds3)
-design(dds3)<-(~alleles)
-dds3<-DESeq(dds3)
-resultsNames(dds3)
-summary(res<-results(dds3, contrast=c("alleles","Dmrt1 fl/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+","Dmrt1 +/+; Rara f/f; Rarb f/f; Rarg f/f; Sf1-Cre+"),alpha=0.05,lfcThreshold = 0))
-summary(res<-results(dds3, contrast=c("alleles","KO","WT"),alpha=0.05,lfcThreshold = 0))
-summary(res_ko<-results(dds3, contrast=c("alleles","dmrt1Het_KO","WT"),alpha=0.05,lfcThreshold = 0))
-table(res$padj < 0.05)
-table(res_ko$padj < 0.05)
-idx<-match(rownames(res_ko),mgi$ensembl_gene_id)
-res_ko$mgi<-mgi[idx,"mgi_symbol"]
-
-idx<-match(rownames(res),mgi$ensembl_gene_id)
-res$mgi<-mgi[idx,"mgi_symbol"]
-res<-res[with(res,order(padj)),]
-head(res,20)
-plotMA(res, alpha=0.05, ylim=c(-12,12))
-
-res$new<-!(rownames(res) %in% rownames(res_orig[1:172,]))
-
-#View(res)
-res<-res[with(res,order(padj)),]
-head(res)
-res_temp<-res[!is.na(res$padj),]
-res_temp<-res_temp[res_temp$padj<0.05,]
-dim(res_temp)
-write.csv(res_temp,paste0("Supplmentary_Table_1",ts,".csv"),quote=F)
-options(httr_oob_default=TRUE)
-#googlesheets::gs_auth(new_user = TRUE)
-temp_gs<-googlesheets::gs_upload(paste0("Supplmentary_Table_1",ts,".csv"))
-googlesheets::gs_browse(temp_gs)
-
-gg_plotCounts("Pappa2",dds2)
-gg_plotCounts("Adh7",dds2)
-
-g2<-res %>%
-  as.data.frame() %>% 
-  mutate(deg=padj<0.05) %>% 
-  mutate(x=log2(baseMean+0.5)) %>% 
-  filter(!(is.na(padj) | is.na(log2FoldChange))) %>% 
-  ggplot(aes(x=x,y=log2FoldChange,color=deg)) + 
-  ggtitle("WT vs RAR null (new) ") + ylim(c(-12,12)) +
-  xlab("Mean Expression (Log2 Normalized Counts)") + ylab("") +
-  scale_color_manual(values=c("black","red")) +
-  geom_point(size=0.35)+theme_bw() + theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank()) +
-  theme(legend.position="none")
-
-
-```
-
+## Calculate Differentially expressed Genes for Cag-dmrt1 Overexpression
 
 ```{r}
 colData(dds4<-dds[,9:12])
@@ -308,6 +255,8 @@ g3<-res_cag %>%
   geom_point(size=0.35)+theme_bw() + theme(panel.grid.major=element_blank(),panel.grid.minor=element_blank()) +
   theme(legend.position="none")
 
+grid.arrange(g1,g3,ncol=2)
+
 pdf(file=paste0("Figure_2C_",ts,".pdf"),width=8,height=5)
 grid.arrange(g1,g3,ncol=2)
 dev.off()
@@ -315,40 +264,10 @@ dev.off()
 #ggsave(file=paste0("Figure_2C_",ts,".svg"),device = svglite::svglite,plot=g3,width=6,height=8.5)
 ```
 
-```{r}
-colData(dds3)
-dds5<-dds3[,1:8]
 
-plotPCA( DESeqTransform( dds5 ) ,intgroup = c("alleles"),ntop=100)+
-  ggtitle("dds") + theme_bw()
-
-colData(dds5)
-gg_plotCounts("Foxl2",dds3)
-design(dds5)<-(~genotype)
-dds5<-DESeq(dds5)
-resultsNames(dds5)
-summary(res_dds5<-results(dds5, contrast=c("genotype","KO","WT"),alpha=0.05,lfcThreshold = 0))
-table(res_dds5$padj < 0.05)
-
-```
 
 #GO terms
 
-#old way
-```{r}
-library("Mus.musculus")
-gocat<-AnnotationDbi::select(Mus.musculus,keys=rownames(res),keytype="ENSEMBL",columns="GOID")
-gocat<-gocat[gocat$ONTOLOGY=="BP",c("ENSEMBL","GOID")]
-str(gocat)
-gocat$GOID<-as.character(gocat$GOID)
-#gocat2<-do.call( rbind, lapply( rownames(gocat)[1:20], testCategory ) )
-gocat.list<-split(gocat$GOID,gocat$ENSEMBL)
-gocat.list[["ENSG00000183337"]]
-
-
-```
-
-#new way
 ```{r}
 length(expressed_genes<-unique(c(rownames(res[res$baseMean > 1 & !is.na(res$log2FoldChange) & !is.na(res$padj),]),
                                  rownames(res_cag[res_cag$baseMean > 1 & !is.na(res_cag$log2FoldChange) & !is.na(res_cag$padj),]))))
@@ -428,7 +347,8 @@ listGO<-function(goid) {
 }
 
 listGO("GO:0008584") #male gonad development:  GO:0008584
-listGO("GO:0042573")
+listGO("GO:0042573") #retinoic acid metabolic process
+listGO("GO:0043401") #steroid hormone mediated signaling pathway
 
 
 ```
